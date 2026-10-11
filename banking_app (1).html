@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger & Co. — Banking Information System</title>
+<style>
+/* Using system font stacks instead of an external @import — this page
+   should not depend on a network fetch (like Google Fonts) succeeding
+   in order to render. A serif stack stands in for Fraunces (headings),
+   a sans stack for IBM Plex Sans (body), and a monospace stack for
+   IBM Plex Mono (money amounts, for tabular alignment). */
+
+:root {
+  --ink: #1b2a41;
+  --paper: #efeee9;
+  --paper-raised: #f7f6f2;
+  --text: #22262b;
+  --text-muted: #5b6572;
+  --green: #2f6d4f;
+  --red: #9b3a3a;
+  --brass: #b08d57;
+  --line: #d9d5cb;
+}
+* { box-sizing: border-box; }
+html { -webkit-font-smoothing: antialiased; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  display: flex;
+  min-height: 100vh;
+}
+h1, h2, h3 { font-family: Georgia, 'Times New Roman', serif; font-weight: 600; color: var(--ink); margin: 0 0 0.4em 0; }
+h1 { font-size: 1.9rem; }
+h2 { font-size: 1.35rem; }
+h3 { font-size: 1.05rem; }
+a { color: var(--ink); cursor: pointer; }
+.amount { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-variant-numeric: tabular-nums; }
+.amount.credit { color: var(--green); }
+.amount.debit { color: var(--red); }
+
+.sidebar { width: 220px; flex-shrink: 0; background: var(--ink); color: #dfe4ea; padding: 28px 22px; position: sticky; top: 0; height: 100vh; }
+.sidebar .brand { font-family: Georgia, 'Times New Roman', serif; font-size: 1.25rem; color: #fff; margin-bottom: 4px; }
+.sidebar .brand-sub { font-size: 0.78rem; color: #9fb0c3; margin-bottom: 34px; }
+.sidebar nav a { display: block; color: #c7cfd9; text-decoration: none; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 0.93rem; }
+.sidebar nav a:hover { color: #fff; }
+
+.main { flex: 1; padding: 42px 52px; max-width: 900px; }
+.page-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 28px; border-bottom: 2px solid var(--ink); padding-bottom: 14px; gap: 20px; }
+
+.flash { padding: 11px 16px; margin-bottom: 20px; border-left: 3px solid var(--brass); background: var(--paper-raised); font-size: 0.92rem; }
+.flash.error { border-left-color: var(--red); color: var(--red); }
+.flash.success { border-left-color: var(--green); color: var(--green); }
+
+.stat-row { display: flex; gap: 42px; margin-bottom: 36px; flex-wrap: wrap; }
+.stat .stat-value { font-family: Georgia, 'Times New Roman', serif; font-size: 2.1rem; color: var(--ink); display: block; }
+.stat .stat-label { font-size: 0.82rem; color: var(--text-muted); }
+
+.ledger { border-top: 1px solid var(--line); }
+.ledger-row { display: flex; justify-content: space-between; align-items: center; padding: 13px 2px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--text); }
+.ledger-row:hover { background: var(--paper-raised); }
+.ledger-row .primary { font-weight: 500; }
+.ledger-row .secondary { font-size: 0.85rem; color: var(--text-muted); }
+
+.card { background: var(--paper-raised); border: 1px solid var(--line); padding: 22px 24px; margin-bottom: 24px; }
+label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px; margin-top: 14px; }
+label:first-child { margin-top: 0; }
+input[type="text"], input[type="email"], input[type="number"], select {
+  width: 100%; padding: 9px 10px; border: 1px solid var(--line); background: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.95rem; color: var(--text);
+}
+input:focus, select:focus { outline: 2px solid var(--brass); outline-offset: 1px; }
+button {
+  margin-top: 18px; background: var(--ink); color: #fff; border: none; padding: 10px 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 0.92rem; font-weight: 500; cursor: pointer;
+}
+button:hover { background: #2a3f5c; }
+.form-row { display: flex; gap: 16px; }
+.form-row > div { flex: 1; }
+.forms-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.empty-state { color: var(--text-muted); font-style: italic; padding: 18px 0; }
+.back-link { display: inline-block; margin-bottom: 18px; font-size: 0.88rem; color: var(--text-muted); text-decoration: none; }
+.back-link:hover { color: var(--ink); }
+.loading-note { color: var(--text-muted); font-style: italic; }
+@media (max-width: 720px) {
+  body { flex-direction: column; }
+  .sidebar { width: auto; height: auto; position: static; }
+  .main { padding: 28px 22px; }
+  .forms-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand">Ledger &amp; Co.</div>
+  <div class="brand-sub">Banking Information System</div>
+  <nav>
+    <a data-route="dashboard">Dashboard</a>
+    <a data-route="customers">Customers</a>
+  </nav>
+</aside>
+
+<main class="main" id="main">
+  <p class="loading-note">Loading your data&hellip;</p>
+</main>
+
+<script>
+/* ============================================================
+   DATA LAYER
+   Everything is kept in one object and saved as a single key
+   ("bank-data") in persistent storage, so combined reads/writes
+   don't need multiple round-trips. shared=false (default) means
+   this data is private to you and won't be seen by anyone else
+   who opens this page.
+   ============================================================ */
+
+let state = null; // { customers: [], accounts: [], transactions: [], nextCustomerId, nextAccountId, nextTxId }
+let flashMessage = null; // { text, type }
+
+function emptyState() {
+  return { customers: [], accounts: [], transactions: [], nextCustomerId: 1, nextAccountId: 1, nextTxId: 1 };
+}
+
+async function loadState() {
+  try {
+    const result = await window.storage.get('bank-data', false);
+    state = result ? JSON.parse(result.value) : emptyState();
+  } catch (e) {
+    state = emptyState();
+  }
+}
+
+async function saveState() {
+  try {
+    await window.storage.set('bank-data', JSON.stringify(state), false);
+  } catch (e) {
+    flashMessage = { text: 'Could not save changes — your last action may not persist.', type: 'error' };
+  }
+}
+
+function findCustomer(id) { return state.customers.find(c => c.id === id); }
+function findAccount(id) { return state.accounts.find(a => a.id === id); }
+function accountsFor(customerId) { return state.accounts.filter(a => a.customer_id === customerId); }
+function txHistory(accountId) {
+  return state.transactions.filter(t => t.account_id === accountId).sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+}
+function fmt(n) { return n.toFixed(2); }
+
+/* ---------------- banking operations (mirror bank_db.py logic) ---------------- */
+
+function registerCustomer(full_name, address, phone, email) {
+  const c = { id: state.nextCustomerId++, full_name, address, phone, email, created_at: new Date().toISOString() };
+  state.customers.push(c);
+  return c;
+}
+
+function openAccount(customerId, accountType, initialDeposit) {
+  if (!findCustomer(customerId)) throw new Error('No customer with that ID.');
+  if (initialDeposit < 0) throw new Error('Initial deposit cannot be negative.');
+  const a = { id: state.nextAccountId++, customer_id: customerId, account_type: accountType, balance: initialDeposit, created_at: new Date().toISOString() };
+  state.accounts.push(a);
+  if (initialDeposit > 0) {
+    state.transactions.push({ id: state.nextTxId++, account_id: a.id, type: 'Deposit', amount: initialDeposit, related_account_id: null, description: 'Initial deposit on account opening', date: new Date().toISOString() });
+  }
+  return a;
+}
+
+function deposit(accountId, amount) {
+  if (amount <= 0) throw new Error('Deposit amount must be positive.');
+  const a = findAccount(accountId);
+  if (!a) throw new Error('No account with that ID.');
+  a.balance += amount;
+  state.transactions.push({ id: state.nextTxId++, account_id: accountId, type: 'Deposit', amount, related_account_id: null, description: 'Cash deposit', date: new Date().toISOString() });
+}
+
+function withdraw(accountId, amount) {
+  if (amount <= 0) throw new Error('Withdrawal amount must be positive.');
+  const a = findAccount(accountId);
+  if (!a) throw new Error('No account with that ID.');
+  if (amount > a.balance) throw new Error(`Insufficient funds: balance is ${fmt(a.balance)}, tried to withdraw ${fmt(amount)}.`);
+  a.balance -= amount;
+  state.transactions.push({ id: state.nextTxId++, account_id: accountId, type: 'Withdrawal', amount, related_account_id: null, description: 'Cash withdrawal', date: new Date().toISOString() });
+}
+
+function transferFunds(fromId, toId, amount) {
+  if (fromId === toId) throw new Error('Cannot transfer to the same account.');
+  if (amount <= 0) throw new Error('Transfer amount must be positive.');
+  const from = findAccount(fromId), to = findAccount(toId);
+  if (!from) throw new Error(`No account with ID ${fromId}.`);
+  if (!to) throw new Error(`No account with ID ${toId}.`);
+  if (amount > from.balance) throw new Error(`Insufficient funds: balance is ${fmt(from.balance)}, tried to transfer ${fmt(amount)}.`);
+  from.balance -= amount;
+  to.balance += amount;
+  const now = new Date().toISOString();
+  state.transactions.push({ id: state.nextTxId++, account_id: fromId, type: 'Transfer Out', amount, related_account_id: toId, description: 'Fund transfer', date: now });
+  state.transactions.push({ id: state.nextTxId++, account_id: toId, type: 'Transfer In', amount, related_account_id: fromId, description: 'Fund transfer', date: now });
+}
+
+/* ============================================================
+   ROUTER + RENDERING
+   ============================================================ */
+
+function navigate(route) {
+  location.hash = route;
+}
+
+window.addEventListener('hashchange', render);
+
+// Event delegation: rather than inline onclick="" attributes (which some
+// sandboxed environments block for security), every clickable nav element
+// carries a data-route attribute, and a single listener on the document
+// handles all of them. This is a more robust pattern for embedded pages.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-route]');
+  if (el) navigate(el.getAttribute('data-route'));
+});
+
+// If anything throws before or during rendering, show a visible message
+// instead of leaving the page blank, so a problem is easy to diagnose.
+window.addEventListener('error', (e) => {
+  const main = document.getElementById('main');
+  if (main) {
+    main.innerHTML = `<div class="flash error">Something went wrong: ${escapeHtml(e.message || 'unknown error')}. Try reloading the page.</div>`;
+  }
+});
+
+function currentRoute() {
+  const hash = location.hash.replace(/^#/, '') || 'dashboard';
+  return hash.split('/');
+}
+
+function flashHtml() {
+  if (!flashMessage) return '';
+  const html = `<div class="flash ${flashMessage.type}">${escapeHtml(flashMessage.text)}</div>`;
+  flashMessage = null;
+  return html;
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function render() {
+  const [route, param] = currentRoute();
+  const main = document.getElementById('main');
+
+  if (route === 'customers') { main.innerHTML = renderCustomers(); attachCustomerForm(); return; }
+  if (route === 'customer' && param) { main.innerHTML = renderCustomerDetail(parseInt(param)); attachCustomerDetailForms(parseInt(param)); return; }
+  if (route === 'account' && param) { main.innerHTML = renderAccountDetail(parseInt(param)); attachAccountForms(parseInt(param)); return; }
+  main.innerHTML = renderDashboard();
+}
+
+function renderDashboard() {
+  const totalAccounts = state.accounts.length;
+  const totalBalance = state.accounts.reduce((s, a) => s + a.balance, 0);
+  const rows = state.customers.map(c => `
+    <a class="ledger-row" data-route="customer/${c.id}">
+      <span>
+        <span class="primary">${escapeHtml(c.full_name)}</span><br>
+        <span class="secondary">${c.email ? escapeHtml(c.email) : 'Customer ID ' + c.id}</span>
+      </span>
+      <span class="secondary">View accounts</span>
+    </a>`).join('');
+
+  return `
+    ${flashHtml()}
+    <div class="page-header">
+      <h1>Dashboard</h1>
+      <button data-route="customers">Register customer</button>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><span class="stat-value">${state.customers.length}</span><span class="stat-label">Customers</span></div>
+      <div class="stat"><span class="stat-value">${totalAccounts}</span><span class="stat-label">Accounts</span></div>
+      <div class="stat"><span class="stat-value amount">${fmt(totalBalance)}</span><span class="stat-label">Total held across all accounts</span></div>
+    </div>
+    <h2>Customers</h2>
+    ${state.customers.length ? `<div class="ledger">${rows}</div>` : `<p class="empty-state">No customers yet. Register the first one to get started.</p>`}
+  `;
+}
+
+function renderCustomers() {
+  const rows = state.customers.map(c => `
+    <a class="ledger-row" data-route="customer/${c.id}">
+      <span>
+        <span class="primary">${escapeHtml(c.full_name)}</span><br>
+        <span class="secondary">${c.phone ? escapeHtml(c.phone) : 'No phone on file'}</span>
+      </span>
+      <span class="secondary">ID ${c.id}</span>
+    </a>`).join('');
+
+  return `
+    <a class="back-link" data-route="dashboard">Back to dashboard</a>
+    ${flashHtml()}
+    <div class="page-header"><h1>Customers</h1></div>
+    <div class="card">
+      <h3>Register a new customer</h3>
+      <form id="registerForm">
+        <label for="full_name">Full name</label>
+        <input type="text" id="full_name" required>
+        <div class="form-row">
+          <div><label for="phone">Phone</label><input type="text" id="phone"></div>
+          <div><label for="email">Email</label><input type="email" id="email"></div>
+        </div>
+        <label for="address">Address</label>
+        <input type="text" id="address">
+        <button type="submit">Register customer</button>
+      </form>
+    </div>
+    <h2>All customers</h2>
+    ${state.customers.length ? `<div class="ledger">${rows}</div>` : `<p class="empty-state">No customers registered yet.</p>`}
+  `;
+}
+
+function attachCustomerForm() {
+  const form = document.getElementById('registerForm');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const full_name = document.getElementById('full_name').value.trim();
+    const phone = document.getElementById('phone').value.trim();
+    const email = document.getElementById('email').value.trim() || null;
+    const address = document.getElementById('address').value.trim();
+    if (!full_name) { flashMessage = { text: 'Full name is required.', type: 'error' }; render(); return; }
+    const c = registerCustomer(full_name, address, phone, email);
+    await saveState();
+    flashMessage = { text: `Registered ${full_name} (customer ID ${c.id}).`, type: 'success' };
+    navigate('customer/' + c.id);
+  });
+}
+
+function renderCustomerDetail(customerId) {
+  const c = findCustomer(customerId);
+  if (!c) { flashMessage = { text: 'Customer not found.', type: 'error' }; setTimeout(() => navigate('customers'), 0); return ''; }
+  const accounts = accountsFor(customerId);
+  const rows = accounts.map(a => `
+    <a class="ledger-row" data-route="account/${a.id}">
+      <span><span class="primary">${a.account_type} account</span><br><span class="secondary">Account ID ${a.id}</span></span>
+      <span class="amount credit">${fmt(a.balance)}</span>
+    </a>`).join('');
+
+  return `
+    <a class="back-link" data-route="customers">Back to customers</a>
+    ${flashHtml()}
+    <div class="page-header"><h1>${escapeHtml(c.full_name)}</h1></div>
+    <p style="color: var(--text-muted); margin-top: -18px; margin-bottom: 28px;">
+      Customer ID ${c.id}
+      ${c.phone ? '&nbsp;&nbsp;' + escapeHtml(c.phone) : ''}
+      ${c.email ? '&nbsp;&nbsp;' + escapeHtml(c.email) : ''}
+      ${c.address ? '<br>' + escapeHtml(c.address) : ''}
+    </p>
+    <div class="card">
+      <h3>Open a new account</h3>
+      <form id="openAccountForm">
+        <div class="form-row">
+          <div>
+            <label for="account_type">Account type</label>
+            <select id="account_type"><option value="Savings">Savings</option><option value="Checking">Checking</option></select>
+          </div>
+          <div><label for="initial_deposit">Initial deposit</label><input type="number" step="0.01" min="0" id="initial_deposit" value="0"></div>
+        </div>
+        <button type="submit">Open account</button>
+      </form>
+    </div>
+    <h2>Accounts</h2>
+    ${accounts.length ? `<div class="ledger">${rows}</div>` : `<p class="empty-state">No accounts yet for this customer.</p>`}
+  `;
+}
+
+function attachCustomerDetailForms(customerId) {
+  const form = document.getElementById('openAccountForm');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const account_type = document.getElementById('account_type').value;
+    const initial_deposit = parseFloat(document.getElementById('initial_deposit').value || '0');
+    try {
+      const a = openAccount(customerId, account_type, initial_deposit);
+      await saveState();
+      flashMessage = { text: `Opened ${account_type} account (ID ${a.id}).`, type: 'success' };
+    } catch (err) {
+      flashMessage = { text: `Could not open account: ${err.message}`, type: 'error' };
+    }
+    render();
+  });
+}
+
+function renderAccountDetail(accountId) {
+  const a = findAccount(accountId);
+  if (!a) { flashMessage = { text: 'Account not found.', type: 'error' }; setTimeout(() => navigate('customers'), 0); return ''; }
+  const c = findCustomer(a.customer_id);
+  const history = txHistory(accountId);
+  const rows = history.map(t => {
+    const isCredit = t.type === 'Deposit' || t.type === 'Transfer In';
+    const related = t.related_account_id ? `&nbsp;&nbsp;${t.type === 'Transfer Out' ? 'to' : 'from'} account ${t.related_account_id}` : '';
+    return `
+      <div class="ledger-row">
+        <span><span class="primary">${t.type}</span><br><span class="secondary">${new Date(t.date).toLocaleString()}${related}</span></span>
+        <span class="amount ${isCredit ? 'credit' : 'debit'}">${isCredit ? '+' : '-'}${fmt(t.amount)}</span>
+      </div>`;
+  }).join('');
+
+  return `
+    <a class="back-link" data-route="customer/${c.id}">Back to ${escapeHtml(c.full_name)}</a>
+    ${flashHtml()}
+    <div class="page-header">
+      <div><h1>${a.account_type} account &middot; ${escapeHtml(c.full_name)}</h1></div>
+      <div class="amount credit" style="font-size: 1.6rem;">${fmt(a.balance)}</div>
+    </div>
+    <div class="forms-grid">
+      <div class="card">
+        <h3>Deposit</h3>
+        <form id="depositForm">
+          <label for="deposit_amount">Amount</label>
+          <input type="number" step="0.01" min="0.01" id="deposit_amount" required>
+          <button type="submit">Deposit</button>
+        </form>
+      </div>
+      <div class="card">
+        <h3>Withdraw</h3>
+        <form id="withdrawForm">
+          <label for="withdraw_amount">Amount</label>
+          <input type="number" step="0.01" min="0.01" id="withdraw_amount" required>
+          <button type="submit">Withdraw</button>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Transfer to another account</h3>
+      <form id="transferForm">
+        <div class="form-row">
+          <div><label for="to_account_id">To account ID</label><input type="number" id="to_account_id" required></div>
+          <div><label for="transfer_amount">Amount</label><input type="number" step="0.01" min="0.01" id="transfer_amount" required></div>
+        </div>
+        <button type="submit">Transfer</button>
+      </form>
+    </div>
+    <h2>Transaction history</h2>
+    ${history.length ? `<div class="ledger">${rows}</div>` : `<p class="empty-state">No transactions yet for this account.</p>`}
+  `;
+}
+
+function attachAccountForms(accountId) {
+  const depositForm = document.getElementById('depositForm');
+  const withdrawForm = document.getElementById('withdrawForm');
+  const transferForm = document.getElementById('transferForm');
+
+  if (depositForm) depositForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(document.getElementById('deposit_amount').value);
+    try { deposit(accountId, amount); await saveState(); flashMessage = { text: `Deposited ${fmt(amount)}.`, type: 'success' }; }
+    catch (err) { flashMessage = { text: `Could not deposit: ${err.message}`, type: 'error' }; }
+    render();
+  });
+
+  if (withdrawForm) withdrawForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(document.getElementById('withdraw_amount').value);
+    try { withdraw(accountId, amount); await saveState(); flashMessage = { text: `Withdrew ${fmt(amount)}.`, type: 'success' }; }
+    catch (err) { flashMessage = { text: `Could not withdraw: ${err.message}`, type: 'error' }; }
+    render();
+  });
+
+  if (transferForm) transferForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const toId = parseInt(document.getElementById('to_account_id').value);
+    const amount = parseFloat(document.getElementById('transfer_amount').value);
+    try { transferFunds(accountId, toId, amount); await saveState(); flashMessage = { text: `Transferred ${fmt(amount)} to account ${toId}.`, type: 'success' }; }
+    catch (err) { flashMessage = { text: `Could not transfer: ${err.message}`, type: 'error' }; }
+    render();
+  });
+}
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+
+(async function init() {
+  try {
+    await loadState();
+    render();
+  } catch (err) {
+    document.getElementById('main').innerHTML =
+      `<div class="flash error">Could not start the app: ${escapeHtml(err.message || String(err))}.</div>`;
+  }
+})();
+</script>
+</body>
+</html>
